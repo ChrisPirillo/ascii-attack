@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!--#region SEO & Core Metadata -->
+    <meta charset="UTF-8">
+    <title>ASCII Attack - A Retro style Arcade Game</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="description" content="Play ASCII Attack, a retro style arcade shooter in your browser. Battle swarms of ASCII enemies, dodge their fire, and clear levels. Features full mobile touch controls.">
+    <meta name="keywords" content="ASCII Attack, Galaga clone, ascii game, retro game, space shooter, arcade shooter, terminal game, browser game, mobile game, touch game, Chris Pirillo, web game">
+    <link rel="canonical" href="https://pirillo.com/arcade/ascii-attack.html">
+    <meta name="author" content="Chris Pirillo">
+
+    <!--#endregion -->
+
+    <!--#region Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://pirillo.com/arcade/ascii-attack.html">
+    <meta property="og:title" content="ASCII Attack - A Retro style Arcade Game">
+    <meta property="og:description" content="A retro style arcade shooter rendered in ASCII art, now with full mobile touch controls.">
+    <meta property="og:image" content="https://pirillo.com/arcade/images/ascii-attack.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <!--#endregion -->
+
+    <!--#region Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:url" content="https://pirillo.com/arcade/ascii-attack.html">
+    <meta name="twitter:title" content="ASCII Attack - A Retro style Arcade Game">
+    <meta name="twitter:description" content="A retro style arcade shooter rendered in ASCII art, now with full mobile touch controls.">
+    <meta name="twitter:image" content="https://pirillo.com/arcade/images/ascii-attack.png">
+    <meta name="twitter:creator" content="@ChrisPirillo">
+    <!--#endregion -->
+    
+    <!--#region Performance & Resource Hints -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://www.googletagmanager.com">
+    <link rel="preload" href="https://fonts.googleapis.com/css2?family=VT323&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=VT323&display=swap"></noscript>
+    <!--#endregion -->
+
+    <!--#region Google Analytics -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-1CQ4D3VQ3L"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-1CQ4D3VQ3L');
+    </script>
+    <!--#endregion -->
+
+    <!--#region JSON-LD Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "VideoGame",
+      "name": "ASCII Attack",
+      "url": "https://pirillo.com/arcade/ascii-attack.html",
+      "author": {
+        "@type": "Person",
+        "name": "Chris Pirillo"
+      },
+      "image": "https://pirillo.com/arcade/images/ascii-attack.png",
+      "description": "A retro style arcade shooter rendered entirely in ASCII art. Battle swarms of enemies, dodge their fire, and clear levels. Now with full mobile touch controls.",
+      "gamePlatform": ["PC", "Mobile"],
+      "playMode": "SinglePlayer",
+      "genre": "Shoot 'em up",
+      "operatingSystem": "Any (Web Browser)",
+      "keywords": "ascii game, retro game, arcade shooter, space shooter, galaga clone, terminal game, browser game, mobile game, touch game"
+    }
+    </script>
+    <!--#endregion -->
+
+    <style>
+        html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #0a0a0a; }
+        body { color: #00ff41; font-family: 'VT323', monospace, 'Courier New', Courier; display: flex; justify-content: center; align-items: center; }
+        #game-screen { white-space: pre; line-height: 1.0; background-color: #050505; user-select: none; -webkit-user-select: none; position: relative; z-index: 1; }
+        #scanline-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.1) 0px, rgba(255, 255, 255, 0.1) 1px, transparent 1px, transparent 4px); pointer-events: none; z-index: 100; animation: flicker 0.15s infinite; }
+        @keyframes flicker { 0% { opacity: 0.85; } 50% { opacity: 1; } 100% { opacity: 0.85; } }
+    </style>
+</head>
+<body>
+    <main>
+        <div id="scanline-overlay"></div>
+        <pre id="game-screen" aria-label="ASCII Attack Game Screen"></pre>
+    </main>
+    
+    <script>
+        // --- DOM Elements ---
+        const gameScreen = document.getElementById('game-screen');
+
+        // --- Game Configuration ---
+        let gameWidth, gameHeight;
+        const playerChar = '^';
+        const playerBulletChar = '|';
+        const enemyChar = 'W';
+        const enemyBulletChar = '.'; // Changed from 'v' to '.'
+        const initialGameSpeed = 200;
+
+        // --- Game State ---
+        let gameState = 'start';
+        let player, playerLives, playerBullets, playerIsHit, playerCanFire;
+        let enemies, enemyBullets, enemyDirection;
+        let score, highScore = localStorage.getItem('asciiAttackHighScore') || 0;
+        let level;
+        let gameInterval;
+        
+        // --- Input & Sizing ---
+        const hasTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+        let touchFireInterval = null;
+
+        // --- SIZING ---
+        function calculateGridSize() {
+            const isMobile = window.innerWidth < 768;
+            const fontSize = isMobile ? '16px' : '18px';
+            gameScreen.style.fontSize = fontSize;
+            const tempChar = document.createElement('span');
+            tempChar.textContent = 'M';
+            tempChar.style.visibility = 'hidden';
+            tempChar.style.position = 'absolute';
+            tempChar.style.fontFamily = getComputedStyle(gameScreen).fontFamily;
+            tempChar.style.fontSize = getComputedStyle(gameScreen).fontSize;
+            document.body.appendChild(tempChar);
+            const charWidth = tempChar.getBoundingClientRect().width;
+            const charHeight = tempChar.getBoundingClientRect().height;
+            document.body.removeChild(tempChar);
+            const viewWidth = document.documentElement.clientWidth;
+            const viewHeight = document.documentElement.clientHeight;
+            if (charWidth > 0 && charHeight > 0) {
+                gameWidth = Math.floor(viewWidth / charWidth);
+                gameHeight = Math.floor(viewHeight / charHeight);
+            } else {
+                gameWidth = 80; gameHeight = 30;
+            }
+        }
+
+        // --- GAME STATE MANAGEMENT ---
+        function startGame() {
+            if (gameState === 'playing') return;
+            calculateGridSize();
+            level = 1;
+            score = 0;
+            playerLives = 3;
+            setupLevel();
+        }
+
+        function setupLevel() {
+            gameState = 'playing';
+            player = { x: Math.floor(gameWidth / 2), y: gameHeight - 2 };
+            playerBullets = [];
+            playerIsHit = false;
+            playerCanFire = true;
+            
+            enemies = [];
+            // Dynamically calculate formation columns and rows
+            // Aim for roughly 1/4th of gameWidth for columns, with a min/max
+            const formationCols = Math.max(5, Math.min(15, Math.floor(gameWidth / 4))); 
+            // Aim for roughly 1/6th of gameHeight for rows, with a min/max
+            const formationRows = Math.max(2, Math.min(6, Math.floor(gameHeight / 6))); 
+
+            for (let row = 0; row < formationRows; row++) {
+                for (let col = 0; col < formationCols; col++) {
+                    // Calculate starting X to center the formation
+                    const startX = Math.floor((gameWidth - (formationCols * 3)) / 2);
+                    enemies.push({
+                        x: startX + col * 3, // Each enemy takes 3 chars width for spacing
+                        y: row * 2 + 3, // Each row takes 2 chars height for spacing
+                        alive: true,
+                        isDiving: false 
+                    });
+                }
+            }
+
+            enemyBullets = [];
+            enemyDirection = 1;
+            
+            const levelSpeed = Math.max(50, initialGameSpeed - (level * 10));
+            if (gameInterval) clearInterval(gameInterval);
+            gameInterval = setInterval(gameLoop, levelSpeed);
+        }
+
+        function showStartScreen() {
+            gameState = 'start';
+            if (gameInterval) clearInterval(gameInterval);
+            if (touchFireInterval) clearInterval(touchFireInterval);
+            calculateGridSize();
+            render();
+        }
+
+        // --- Main Game Loop ---
+        function gameLoop() {
+            if (gameState !== 'playing') return;
+            update();
+            render();
+        }
+        
+        function handlePlayerHit() {
+            // Only take a hit if not currently invincible
+            if (playerIsHit) return; 
+            
+            playerLives--;
+            if (playerLives <= 0) {
+                endGame();
+            } else {
+                playerIsHit = true;
+                // Player becomes temporarily invincible and blinks (handled in render)
+                setTimeout(() => playerIsHit = false, 1500); // 1.5 seconds of invincibility
+            }
+        }
+
+        function update() {
+            // Player Bullets
+            playerBullets.forEach(b => b.y--);
+            playerBullets = playerBullets.filter(b => b.y > 1);
+
+            // Enemy Movement (Formation and Diving)
+            let wallHit = false;
+            enemies.forEach(e => {
+                if (e.alive) {
+                    if (e.isDiving) {
+                        e.y++; // Move down when diving
+                        // Move horizontally towards player's X
+                        if (player) {
+                            if (e.x < player.x) e.x++;
+                            else if (e.x > player.x) e.x--;
+                        }
+                    } else {
+                        // Regular formation movement
+                        e.x += enemyDirection;
+                        if (e.x <= 1 || e.x >= gameWidth - 2) wallHit = true;
+                    }
+                }
+            });
+
+            if (wallHit) {
+                enemyDirection *= -1;
+                // Only non-diving enemies move down with the formation
+                enemies.forEach(e => {
+                    if (e.alive && !e.isDiving) {
+                        e.y++;
+                    }
+                });
+            }
+            
+            // Filter out diving enemies that go off screen
+            enemies = enemies.filter(e => !(e.isDiving && e.y >= gameHeight - 1));
+
+
+            // Trigger new dives (simplified)
+            // Small chance for an alive, non-diving enemy to start diving
+            if (Math.random() < 0.005 && enemies.some(e => e.alive && !e.isDiving)) { 
+                const availableEnemies = enemies.filter(e => e.alive && !e.isDiving);
+                if (availableEnemies.length > 0) {
+                    const divingEnemy = availableEnemies[Math.floor(Math.random() * availableEnemies.length)];
+                    divingEnemy.isDiving = true;
+                }
+            }
+
+
+            // Enemy Bullets
+            enemies.forEach(e => {
+                if (e.alive && Math.random() < 0.007) { // Reduced enemy fire rate slightly
+                    enemyBullets.push({ x: e.x, y: e.y + 1 });
+                }
+            });
+            enemyBullets.forEach(b => b.y++);
+            enemyBullets = enemyBullets.filter(b => b.y < gameHeight - 1);
+
+            // --- COLLISION DETECTION ---
+            // Player bullets vs enemies
+            playerBullets = playerBullets.filter(pb => {
+                let hitEnemy = false;
+                for (let i = 0; i < enemies.length; i++) {
+                    const e = enemies[i];
+                    if (e.alive) {
+                        // Collision if X coordinates match AND Y coordinates are within 1 unit of each other
+                        // This covers cases where objects might "pass through" due to discrete movement.
+                        if (pb.x === e.x && Math.abs(pb.y - e.y) <= 1) {
+                            e.alive = false; // Mark enemy as hit
+                            score += 10; // Increase score
+                            hitEnemy = true; // Mark bullet for removal
+                            break; // Bullet hits only one enemy
+                        }
+                    }
+                }
+                return !hitEnemy; // Keep bullet if it didn't hit an enemy
+            });
+
+            // Enemy bullets vs player
+            enemyBullets = enemyBullets.filter(eb => {
+                // Collision if X coordinates match AND Y coordinates are within 1 unit of each other
+                if (player && eb.x === player.x && Math.abs(eb.y - player.y) <= 1) {
+                    handlePlayerHit(); // Player takes damage
+                    return false; // Remove enemy bullet
+                }
+                return true; // Keep enemy bullet if it didn't hit player
+            });
+            
+            // Enemy vs Player (direct collision)
+            enemies.forEach(e => {
+                if (e.alive && player) {
+                    // Collision if X coordinates match AND Y coordinates are within 1 unit of each other
+                    if (e.x === player.x && Math.abs(e.y - player.y) <= 1) {
+                        handlePlayerHit(); // Player takes damage
+                        e.alive = false; // Enemy is destroyed on collision
+                    }
+                }
+            });
+
+
+            // Level Clear
+            if (enemies.every(e => !e.alive)) {
+                gameState = 'levelClear';
+                level++;
+                setTimeout(setupLevel, 2000);
+            }
+        }
+        
+        function endGame() {
+             gameState = 'gameOver';
+             if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('asciiAttackHighScore', highScore);
+             }
+             clearInterval(gameInterval);
+             if (touchFireInterval) clearInterval(touchFireInterval);
+        }
+
+        // --- RENDERING ---
+        function drawText(grid, text, y, x = 'center') {
+            if (!grid || !grid[y] || y < 0 || y >= gameHeight) return;
+            let startX = x === 'center' ? Math.floor((gameWidth - text.length) / 2) : x;
+            for (let i = 0; i < text.length; i++) {
+                if (startX + i >= 0 && startX + i < gameWidth) grid[y][startX + i] = text[i];
+            }
+        }
+
+        function render() {
+            if (!gameWidth || !gameHeight) return;
+            let grid = Array(gameHeight).fill(null).map(() => Array(gameWidth).fill(' '));
+            
+            for (let y = 0; y < gameHeight; y++) {
+                grid[y][0] = '|'; grid[y][gameWidth - 1] = '|';
+                for (let x = 1; x < gameWidth - 1; x++) {
+                    grid[y][x] = (y === 0 || y === gameHeight - 1) ? '-' : ' ';
+                }
+            }
+
+            switch (gameState) {
+                case 'start':
+                    drawText(grid, "A S C I I   A T T A C K", 5);
+                    drawText(grid, "(Green Screen Edition)", 7);
+                    if (hasTouch) {
+                        drawText(grid, "Tap & Hold Left/Right to Move & Fire", 12);
+                        drawText(grid, "[ Tap Screen to Start ]", 18);
+                    } else {
+                        drawText(grid, "Arrows to Move, Space to Fire", 12);
+                        drawText(grid, "[ Press Enter to Start ]", 18);
+                    }
+                    break;
+                case 'playing':
+                case 'levelClear':
+                    // Player rendering with blinking effect when hit
+                    if (player && !(playerIsHit && Math.floor(Date.now() / 100) % 2 === 0)) {
+                         drawText(grid, playerChar, player.y, player.x);
+                    }
+                    playerBullets.forEach(b => drawText(grid, playerBulletChar, b.y, b.x));
+                    enemies.forEach(e => e.alive && drawText(grid, enemyChar, e.y, e.x));
+                    enemyBullets.forEach(b => drawText(grid, enemyBulletChar, b.y, b.x));
+                    
+                    const scoreText = `Score: ${score}`;
+                    const livesText = `Lives: ${'<3 '.repeat(playerLives)}`;
+                    const levelText = `Lvl: ${level}`;
+                    drawText(grid, scoreText, 0, 2);
+                    drawText(grid, levelText, 0, Math.floor(gameWidth/2) - 3);
+                    drawText(grid, livesText, 0, gameWidth - livesText.length - 2);
+                    
+                    if(gameState === 'levelClear') {
+                        // Display the level that was just cleared (level - 1)
+                        drawText(grid, `LEVEL ${level - 1} CLEARED`, Math.floor(gameHeight / 2));
+                    }
+                    break;
+                case 'gameOver':
+                    drawText(grid, "G A M E   O V E R", 8);
+                    drawText(grid, `Final Score: ${score}`, 12);
+                    if (score > highScore) drawText(grid, "New High Score!", 14);
+                    if (hasTouch) drawText(grid, "[ Tap to Play Again ]", 18);
+                    else drawText(grid, "[ Enter to Play Again ]", 18);
+                    break;
+            }
+            gameScreen.textContent = grid.map(row => row.join('')).join('\n');
+        }
+
+        // --- CONTROLS & LISTENERS ---
+        function handleFire() {
+            if (gameState === 'playing' && playerCanFire && player) {
+                playerCanFire = false;
+                playerBullets.push({ x: player.x, y: player.y - 1 });
+                setTimeout(() => { playerCanFire = true; }, 200); // Cooldown for rapid fire
+            }
+        }
+        function handleMove(dir) { if (gameState === 'playing' && player) player.x = Math.max(1, Math.min(gameWidth - 2, player.x + (dir === 'left' ? -1 : 1))); }
+        
+        // Desktop Controls
+        function handleKeyDown(e) {
+            e.preventDefault(); // Prevent default browser actions (like scrolling)
+            if (gameState === 'playing') {
+                if (e.key === 'ArrowLeft') handleMove('left');
+                if (e.key === 'ArrowRight') handleMove('right');
+                if (e.key === ' ') handleFire();
+            } else if (gameState === 'start' || gameState === 'gameOver') {
+                if (e.key === 'Enter') startGame();
+            }
+        }
+
+        // Mobile Controls
+        function handleTouchStart(e) {
+            if (!hasTouch) return;
+            e.preventDefault(); // Prevent scrolling on touch
+
+            if (gameState !== 'playing') {
+                startGame();
+                return;
+            }
+
+            // Clear any existing interval to prevent multiple loops
+            if (touchFireInterval) clearInterval(touchFireInterval);
+
+            const touchX = e.changedTouches[0].clientX;
+            const direction = touchX < window.innerWidth / 2 ? 'left' : 'right';
+            
+            // Move and fire once immediately
+            handleMove(direction);
+            handleFire();
+
+            // Then start the pulsing move/fire
+            touchFireInterval = setInterval(() => {
+                handleMove(direction);
+                handleFire();
+            }, 250); // This creates the "pulsing" feel
+        }
+        
+        function handleTouchEnd(e) {
+            if (!hasTouch) return;
+            e.preventDefault(); // Prevent default touch actions
+            // Stop the pulsing when finger is lifted
+            if (touchFireInterval) clearInterval(touchFireInterval);
+        }
+        
+        document.addEventListener('keydown', handleKeyDown);
+        document.addEventListener('touchstart', handleTouchStart, { passive: false });
+        document.addEventListener('touchend', handleTouchEnd, { passive: false });
+        window.addEventListener('resize', showStartScreen);
+        
+        // Initial Load
+        showStartScreen();
+    </script>
+</body>
+</html>
